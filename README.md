@@ -3,8 +3,6 @@
 **TrafficRAG: Temporal Grounding for Traffic Violations via Retrieval-Augmented Generation**
 WACV Workshops 2026, pp. 66–74.
 
-[Paper](https://openaccess.thecvf.com/content/WACV2026W/RWS/html/Kim_TrafficRAG_Temporal_Grounding_for_Traffic_Violations_via_Retrieval-Augmented_Generation_WACVW_2026_paper.html)
-
 A raw-video pipeline using **VideoMAE V2 Small** for motion proposals, **Qwen3-VL-8B-Instruct** for captioning and temporal refinement, and frozen **ModernBERT-base** for caption retrieval. Model weights download automatically when their stage first runs.
 
 ## Install
