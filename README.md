@@ -1,5 +1,7 @@
 # TrafficRAG
 
+[Paper](https://openaccess.thecvf.com/content/WACV2026W/RWS/html/Kim_TrafficRAG_Temporal_Grounding_for_Traffic_Violations_via_Retrieval-Augmented_Generation_WACVW_2026_paper.html)
+
 **TrafficRAG: Temporal Grounding for Traffic Violations via Retrieval-Augmented Generation**
 WACV Workshops 2026, pp. 66–74.
 
@@ -35,7 +37,7 @@ hf download Qwen/Qwen3-VL-8B-Instruct --local-dir weights/qwen3-vl
 hf download answerdotai/ModernBERT-base --local-dir weights/modernbert
 ```
 
-Use `train.py --weights weights/videomaev2/distill/vit_s_k710_dl_from_giant.pth --offline`, and pass `--vlm weights/qwen3-vl --text-encoder weights/modernbert --offline` to KB construction and inference. The motion checkpoint produced by training contains the entire fine-tuned encoder and binary head, so inference restores it without downloading its foundation weights again. The downloadable VideoMAE weights provide action-recognition initialization. The traffic-domain checkpoint is trained on the annotated segments supplied below.
+Use `traffic.py train --weights weights/videomaev2/distill/vit_s_k710_dl_from_giant.pth --offline`, and pass `--vlm weights/qwen3-vl --text-encoder weights/modernbert --offline` to KB construction and inference. The motion checkpoint produced by training contains the entire fine-tuned encoder and binary head, so inference restores it without downloading its foundation weights again. The downloadable VideoMAE weights provide action-recognition initialization. The traffic-domain checkpoint is trained on the annotated segments supplied below.
 
 ## Prepare dashcam videos and annotations
 
@@ -64,15 +66,15 @@ Each annotation uses source-video seconds and a stable `video_id`. Reuse that ID
 Split before motion training or KB construction. The helper groups all segments by `video_id`, checks path/ID consistency, and emits separate training, validation/query, and KB manifests:
 
 ```bash
-python tools/prepare_splits.py --annotations data/annotations_red_light.jsonl \
+python traffic.py prepare --annotations data/annotations_red_light.jsonl \
   --output data/red_light --validation-fraction 0.15 --kb-fraction 0.15 --seed 42
-python train.py --data data/red_light/motion_train.jsonl --domain red-light \
+python traffic.py train --data data/red_light/motion_train.jsonl --domain red-light \
   --output outputs/red_light --device cuda
-python build_kb.py --input data/red_light/kb.jsonl --domain red-light \
+python traffic.py build-kb --input data/red_light/kb.jsonl --domain red-light \
   --exclude_ids data/red_light/train_query_ids.txt --output data/kb_red_light.npz --device cuda
 ```
 
-Keep recordings from the same drive/driver in one partition when preparing the source manifests. Use validation videos for grounding evaluation. Their positive annotation boundaries supply `target` intervals for `eval.py`. Preserve multiple-event annotations when preparing the ground truth and choose the intended target event for each single-interval query.
+Keep recordings from the same drive/driver in one partition when preparing the source manifests. Use validation videos for grounding evaluation. Their positive annotation boundaries supply `target` intervals for `traffic.py evaluate`. Preserve multiple-event annotations when preparing the ground truth and choose the intended target event for each single-interval query.
 
 Native preprocessing decodes actual presentation timestamps, uniformly samples each interval, resizes RGB frames to 350×350, and applies ImageNet mean/std before VideoMAE. Qwen separately samples its crop with timestamp metadata and its own processor. No extracted frame folder is required. For codec conversion, install FFmpeg and run:
 
@@ -90,11 +92,11 @@ Prepare JSONL with a video path, interval in seconds, binary label, and optional
 ```
 
 ```bash
-python train.py --data data/motion_train.jsonl --domain red-light \
+python traffic.py train --data data/motion_train.jsonl --domain red-light \
   --cache-dir weights/cache --output outputs/red_light --device cuda
-python train.py --data data/motion_train.jsonl --domain blind-spot-left \
+python traffic.py train --data data/motion_train.jsonl --domain blind-spot-left \
   --cache-dir weights/cache --output outputs/blind_left --device cuda
-python train.py --data data/motion_train.jsonl --domain blind-spot-right \
+python traffic.py train --data data/motion_train.jsonl --domain blind-spot-right \
   --cache-dir weights/cache --output outputs/blind_right --device cuda
 ```
 
@@ -110,7 +112,7 @@ Use held-out segments, including hard negatives, separated from motion-training 
 ```
 
 ```bash
-python build_kb.py --input data/kb_red_light.jsonl --domain red-light \
+python traffic.py build-kb --input data/kb_red_light.jsonl --domain red-light \
   --output data/kb_red_light.npz --exclude_ids data/train_query_ids.txt \
   --cache-dir weights/cache --device cuda
 ```
@@ -120,7 +122,7 @@ Qwen captions each segment. Frozen ModernBERT embeds those captions with attenti
 ## Ground a raw video
 
 ```bash
-python inference.py --video data/query.mp4 --domain red-light \
+python traffic.py infer --video data/query.mp4 --domain red-light \
   --motion_checkpoint outputs/red_light/last.pt --kb data/kb_red_light.npz \
   --cache-dir weights/cache --output outputs/prediction.json --device cuda
 ```
@@ -145,27 +147,27 @@ The **240 JSON recipes** pair motion optimization with grounding settings:
 | Base crop padding | 0.25, 0.50 seconds |
 | Binary-model learning rate | `1e-6`, `5e-6` |
 
-`train.py --profile` applies the motion section to full VideoMAE fine-tuning. `inference.py --profile` applies the pipeline section to model-backed raw-video inference. Both deserialize native dataclass configurations.
+`traffic.py train --profile` applies the motion section to full VideoMAE fine-tuning. `traffic.py infer --profile` applies the pipeline section to model-backed raw-video inference. Both deserialize native dataclass configurations.
 
 ```bash
-python train.py --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json \
+python traffic.py train --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json \
   --data data/motion_train.jsonl --domain red-light --device cuda --output outputs/recipe_motion
-python inference.py --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json \
+python traffic.py infer --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json \
   --video data/query.mp4 --motion_checkpoint outputs/recipe_motion/last.pt \
   --kb data/kb_red_light.npz --device cuda --output outputs/recipe_grounding.json
-python inference.py --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json --dry-run
-python -m trafficrag.experiments --validate-all
-python -m trafficrag.experiments.build
+python traffic.py infer --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json --dry-run
+python traffic.py recipes --validate-all
+python traffic.py build-recipes
 ```
 
-Dry-run and catalog validation inspect settings without loading models. `TrafficRAG.Config` composes proposal, verification, and refinement stages under `trafficrag/systems/grounding/`. Separate model lifecycle classes live in `motion/` and `backends/`.
+Dry-run and catalog validation inspect settings without loading models. `TrafficRAG.Config` composes proposal, verification, and refinement stages in `trafficrag/grounding.py`. Video decoding and motion optimization share `trafficrag/motion.py`, while `trafficrag/backends.py` owns captioning, embedding, and recorded evidence. `traffic.py` exposes each operation as a subcommand.
 
 ## Evaluate intervals
 
 Provide JSONL rows containing `prediction` and `target`, each `[start,end]` or `null`:
 
 ```bash
-python eval.py --data data/predictions.jsonl
+python traffic.py evaluate --data data/predictions.jsonl
 ```
 
 Classification F1 measures event presence. Temporal IoU averages over positive ground-truth videos and assigns zero to missed detections.
