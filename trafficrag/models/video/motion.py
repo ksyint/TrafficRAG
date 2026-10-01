@@ -222,7 +222,9 @@ class BinaryMotionClassifier(nn.Module):
 class AnnotatedSegments(Dataset):
     def __init__(self, path, encoder_config, domain):
         self.root = Path(path).resolve().parent
-        self.rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+        self.rows = [
+            json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()
+        ]
         self.rows = [row for row in self.rows if row.get('domain', domain) == domain]
         self.cfg = encoder_config
         if not self.rows:
@@ -238,7 +240,9 @@ class AnnotatedSegments(Dataset):
         row = self.rows[index]
         path = Path(row['video'])
         video = VideoSource(path if path.is_absolute() else self.root / path)
-        frames, _ = video.read(row.get('start', 0), row.get('end'), self.cfg.frames, self.cfg.image_size)
+        frames, _ = video.read(
+            row.get('start', 0), row.get('end'), self.cfg.frames, self.cfg.image_size
+        )
         return motion_pixels(frames), torch.tensor(float(row['label']))
 
 

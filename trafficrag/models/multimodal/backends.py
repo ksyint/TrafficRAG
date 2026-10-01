@@ -5,7 +5,7 @@ import torch
 import numpy as np
 import json
 import re
-from trafficrag.motion import execution_device, VideoSource
+from trafficrag.models.video.motion import execution_device
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,7 +31,9 @@ def create_backend(name, query):
             raise ValueError(f'Unknown backend {name}; registered: {sorted(_BACKENDS)}')
         factory = _BACKENDS[name]
     backend = factory(query)
-    if not all(callable(getattr(backend, method, None)) for method in ('caption', 'embed', 'ground')):
+    if not all(
+        callable(getattr(backend, method, None)) for method in ('caption', 'embed', 'ground')
+    ):
         raise TypeError('A grounding backend must implement caption, embed, and ground.')
     return backend
 
@@ -127,7 +129,12 @@ class VideoLanguageSystem:
         max_new_tokens: int = 256
 
         def __post_init__(self):
-            if self.frames < 2 or self.frames % 2 or self.image_size < 32 or self.max_new_tokens < 1:
+            if (
+                self.frames < 2
+                or self.frames % 2
+                or self.image_size < 32
+                or self.max_new_tokens < 1
+            ):
                 raise ValueError(
                     'VLM sampling needs even frames, image_size >= 32 and a positive output length.'
                 )
@@ -142,7 +149,9 @@ class VideoLanguageSystem:
         from transformers import Qwen3VLForConditionalGeneration
 
         options = dict(
-            cache_dir=self.cfg.cache_dir or None, local_files_only=self.cfg.offline, revision=self.cfg.revision
+            cache_dir=self.cfg.cache_dir or None,
+            local_files_only=self.cfg.offline,
+            revision=self.cfg.revision,
         )
         self.processor = AutoProcessor.from_pretrained(self.cfg.vlm, **options)
         self.model = (
@@ -160,14 +169,21 @@ class VideoLanguageSystem:
     def generate(self, video, interval, prompt):
         if self.model is None:
             self.configure()
-        frames, seconds = video.read(interval.start, interval.end, self.cfg.frames, self.cfg.image_size)
+        frames, seconds = video.read(
+            interval.start, interval.end, self.cfg.frames, self.cfg.image_size
+        )
         messages = [
             {
                 'role': 'user',
-                'content': [{'type': 'video', 'video': 'sampled_crop'}, {'type': 'text', 'text': prompt}],
+                'content': [
+                    {'type': 'video', 'video': 'sampled_crop'},
+                    {'type': 'text', 'text': prompt},
+                ],
             }
         ]
-        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
         # Preserve actual crop-relative presentation times through the model's
         # native video timestamp tokens. Millisecond indices avoid frame-rate rounding.
         metadata = {
@@ -176,10 +192,16 @@ class VideoLanguageSystem:
             'frames_indices': np.round(seconds * 1000).astype(int).tolist(),
         }
         batch = self.processor(
-            text=[text], videos=[frames], video_metadata=[metadata], do_sample_frames=False, return_tensors='pt'
+            text=[text],
+            videos=[frames],
+            video_metadata=[metadata],
+            do_sample_frames=False,
+            return_tensors='pt',
         ).to(self.device)
         with torch.inference_mode():
-            result = self.model.generate(**batch, max_new_tokens=self.cfg.max_new_tokens, do_sample=False)
+            result = self.model.generate(
+                **batch, max_new_tokens=self.cfg.max_new_tokens, do_sample=False
+            )
         generated = result[:, batch['input_ids'].shape[1] :]
         return self.processor.batch_decode(
             generated, skip_special_tokens=True, clean_up_tokenization_spaces=False
@@ -208,10 +230,18 @@ class VideoLanguageSystem:
 
     def ground(self, video, interval, candidate, domain):
         duration = interval.end - interval.start
+        references = json.dumps(
+            [
+                {'caption': row.get('caption', ''), 'label': row['label']}
+                for row in candidate.neighbors or []
+            ],
+            ensure_ascii=False,
+        )
         prompt = (
             f'Localize this traffic event: {DOMAIN_RULES[domain]} '
             f'This crop lasts {duration:.3f} seconds; timestamp zero is its first instant. '
             f'Candidate observations: {candidate.caption}\n'
+            f'Retrieved annotated examples, with label 1 for violations and 0 for safe events: {references}\n'
             'Inspect the full crop and return only JSON {"start": number, "end": number} in seconds '
             'relative to this crop. Start at the first visible violation instant and end when it stops. '
             f'Require 0 <= start < end <= {duration:.3f}. If the criterion is not met, return {{"violation": false}}.'

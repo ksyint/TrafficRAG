@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Traffic video record",
+  "type": "object",
+  "required": [
+    "video",
+    "video_id",
+    "domain"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "video_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "video": {
+      "type": "string"
+    },
+    "domain": {
+      "enum": [
+        "red-light",
+        "blind-spot-left",
+        "blind-spot-right"
+      ]
+    },
+    "label": {
+      "enum": [
+        0,
+        1
+      ]
+    },
+    "target": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number",
+        "minimum": 0
+      }
+    }
+  },
+  "additionalProperties": true
+}

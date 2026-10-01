@@ -8,10 +8,27 @@ import math
 import random
 from pathlib import Path
 from dataclasses import asdict
-from trafficrag.motion import MotionSystem, VideoMAEEncoder, VideoSource, execution_device
-from trafficrag.experiments import catalog_profiles, load_recipe, recipes_cli, build_recipes_cli
-from trafficrag.backends import VideoLanguageSystem, create_backend, load_query
-from trafficrag.grounding import KnowledgeBase, Interval, TrafficRAG, load_kb, segment_video, temporal_iou
+from trafficrag.models.video.motion import (
+    MotionSystem,
+    VideoMAEEncoder,
+    VideoSource,
+    execution_device,
+)
+from trafficrag.experiments.catalog.recipes import (
+    catalog_profiles,
+    load_recipe,
+    recipes_cli,
+    build_recipes_cli,
+)
+from trafficrag.models.multimodal.backends import VideoLanguageSystem, create_backend, load_query
+from trafficrag.pipeline.temporal.grounding import (
+    KnowledgeBase,
+    Interval,
+    TrafficRAG,
+    load_kb,
+    segment_video,
+    temporal_iou,
+)
 
 
 def train_main(args):
@@ -72,7 +89,9 @@ def train_cli():
     parser.add_argument('--frames', type=int, default=30)
     parser.add_argument('--image-size', type=int, default=350)
     parser.add_argument(
-        '--domain', choices=['red-light', 'blind-spot-left', 'blind-spot-right'], default='red-light'
+        '--domain',
+        choices=['red-light', 'blind-spot-left', 'blind-spot-right'],
+        default='red-light',
     )
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--batch_size', type=int)
@@ -97,7 +116,10 @@ def build_kb_main(args):
         if excluded.intersection(str(row.get('video_id', row['id'])) for row in rows):
             raise ValueError('Knowledge base overlaps excluded motion-training/query video IDs.')
     config = VideoLanguageSystem.Config(
-        vlm=args.vlm, text_encoder=args.text_encoder, cache_dir=args.cache_dir or '', offline=args.offline
+        vlm=args.vlm,
+        text_encoder=args.text_encoder,
+        cache_dir=args.cache_dir or '',
+        offline=args.offline,
     )
     system = VideoLanguageSystem(config, device)
     captions = []
@@ -113,7 +135,10 @@ def build_kb_main(args):
             caption = system.caption(video, interval, args.domain)
         captions.append(caption)
     embeddings = np.concatenate(
-        [system.embed(captions[i : i + args.batch_size]) for i in range(0, len(rows), args.batch_size)]
+        [
+            system.embed(captions[i : i + args.batch_size])
+            for i in range(0, len(rows), args.batch_size)
+        ]
     )
     kb = KnowledgeBase(embeddings, [row['label'] for row in rows], captions, ids)
     output = Path(args.output)
@@ -139,17 +164,23 @@ def build_kb_main(args):
         )
         + '\n'
     )
-    print(json.dumps({'entries': len(rows), 'dimension': embeddings.shape[1], 'output': str(output)}))
+    print(
+        json.dumps({'entries': len(rows), 'dimension': embeddings.shape[1], 'output': str(output)})
+    )
 
 
 def build_kb_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--input', required=True, help='JSONL: id, video, start, end, label; optional caption and video_id.'
+        '--input',
+        required=True,
+        help='JSONL: id, video, start, end, label; optional caption and video_id.',
     )
     parser.add_argument('--output', required=True)
     parser.add_argument(
-        '--domain', choices=['red-light', 'blind-spot-left', 'blind-spot-right'], default='red-light'
+        '--domain',
+        choices=['red-light', 'blind-spot-left', 'blind-spot-right'],
+        default='red-light',
     )
     parser.add_argument('--vlm', default='Qwen/Qwen3-VL-8B-Instruct')
     parser.add_argument('--text-encoder', default='answerdotai/ModernBERT-base')
@@ -172,7 +203,10 @@ def inference_main(args):
     )
     pipeline_config = TrafficRAG.Config.from_dict(config)
     language_config = VideoLanguageSystem.Config(
-        vlm=args.vlm, text_encoder=args.text_encoder, cache_dir=args.cache_dir or '', offline=args.offline
+        vlm=args.vlm,
+        text_encoder=args.text_encoder,
+        cache_dir=args.cache_dir or '',
+        offline=args.offline,
     )
     if args.dry_run:
         print(
@@ -226,7 +260,9 @@ def inference_main(args):
         duration, scores = query['duration'], query['motion_scores']
         mode = 'recorded model outputs' if not args.backend else 'external callbacks'
     else:
-        raise ValueError('Supply --video for model-backed inference or --query for recorded outputs.')
+        raise ValueError(
+            'Supply --video for model-backed inference or --query for recorded outputs.'
+        )
     result = pipeline(duration, scores, backend.caption, backend.embed, backend.ground)
     result.update(execution_mode=mode, domain=args.domain)
     output = json.dumps(result, indent=2, ensure_ascii=False)
@@ -243,13 +279,17 @@ def inference_cli():
     source.add_argument('--profile', help='Paired JSON motion/grounding recipe.')
     inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument('--video', help='Raw dashcam video file.')
-    inputs.add_argument('--query', help='Recorded-output JSON for inspecting saved model predictions.')
+    inputs.add_argument(
+        '--query', help='Recorded-output JSON for inspecting saved model predictions.'
+    )
     parser.add_argument('--list-profiles', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--kb')
     parser.add_argument('--motion_checkpoint')
     parser.add_argument(
-        '--domain', choices=['red-light', 'blind-spot-left', 'blind-spot-right'], default='red-light'
+        '--domain',
+        choices=['red-light', 'blind-spot-left', 'blind-spot-right'],
+        default='red-light',
     )
     parser.add_argument('--vlm', default='Qwen/Qwen3-VL-8B-Instruct')
     parser.add_argument('--text-encoder', default='answerdotai/ModernBERT-base')
@@ -294,7 +334,9 @@ def eval_main(args):
 def eval_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--data', required=True, help='JSONL: prediction [start,end] or null, target [start,end] or null.'
+        '--data',
+        required=True,
+        help='JSONL: prediction [start,end] or null, target [start,end] or null.',
     )
     eval_main(parser.parse_args())
 
@@ -346,7 +388,9 @@ def prepare_splits_main(args):
     output.mkdir(parents=True, exist_ok=True)
     for name, entries in splits.items():
         (output / f'{name}.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in entries))
-    (output / 'train_query_ids.txt').write_text(''.join(v + '\n' for v in videos if v not in knowledge))
+    (output / 'train_query_ids.txt').write_text(
+        ''.join(v + '\n' for v in videos if v not in knowledge)
+    )
     print(json.dumps({name: len(entries) for name, entries in splits.items()}))
 
 
@@ -363,7 +407,18 @@ def prepare_cli():
 def main():
     import sys
 
+    from trafficrag.data.manifests.records import manifest_cli
+    from trafficrag.data.manifests.partitions import partitions_cli
+    from trafficrag.data.cache.artifacts import cache_cli
+    from trafficrag.pipeline.batch.execution.runner import batch_cli
+    from trafficrag.evaluation.reports.summary import report_cli
+
     commands = {
+        'manifest': manifest_cli,
+        'partitions': partitions_cli,
+        'cache': cache_cli,
+        'batch': batch_cli,
+        'report': report_cli,
         'train': train_cli,
         'build-kb': build_kb_cli,
         'infer': inference_cli,

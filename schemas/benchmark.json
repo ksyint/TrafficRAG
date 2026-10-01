@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Traffic benchmark report",
+  "type": "object",
+  "required": [
+    "format",
+    "overall",
+    "retrieval",
+    "runtime"
+  ],
+  "properties": {
+    "format": {
+      "const": "traffic-benchmark-v1"
+    },
+    "overall": {
+      "type": "object"
+    },
+    "retrieval": {
+      "type": "object"
+    },
+    "runtime": {
+      "type": "object"
+    },
+    "domains": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

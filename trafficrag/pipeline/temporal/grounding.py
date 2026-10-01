@@ -46,7 +46,11 @@ def segment_video(duration, window=2.0, stride=1.0):
 
 def propose_candidates(segments, scores, threshold=0.3, sigma=1.0):
     scores = np.asarray(scores, dtype=np.float64)
-    if scores.shape != (len(segments),) or not np.isfinite(scores).all() or np.any((scores < 0) | (scores > 1)):
+    if (
+        scores.shape != (len(segments),)
+        or not np.isfinite(scores).all()
+        or np.any((scores < 0) | (scores > 1))
+    ):
         raise ValueError('One finite motion probability in [0,1] is required per segment.')
     if sigma < 0 or not 0 <= threshold <= 1:
         raise ValueError('Invalid smoothing bandwidth or motion threshold.')
@@ -69,8 +73,12 @@ class ProposalConfig:
 
     def __post_init__(self):
         if not 0 <= self.threshold <= 1 or self.sigma < 0:
-            raise ValueError('Proposal threshold must lie in [0,1] and smoothing sigma must be nonnegative.')
-        if not all(math.isfinite(value) for value in (self.threshold, self.sigma, self.window, self.stride)):
+            raise ValueError(
+                'Proposal threshold must lie in [0,1] and smoothing sigma must be nonnegative.'
+            )
+        if not all(
+            math.isfinite(value) for value in (self.threshold, self.sigma, self.window, self.stride)
+        ):
             raise ValueError('Proposal parameters must be finite.')
         if not 0 < self.stride <= self.window:
             raise ValueError('Proposal windows require 0 < stride <= window.')
@@ -114,6 +122,7 @@ class SemanticVerification:
                     id=self.knowledge_base.ids[int(i)],
                     similarity=float(similarity),
                     label=int(self.knowledge_base.labels[i]),
+                    caption=self.knowledge_base.captions[int(i)],
                 )
                 for i, similarity in zip(neighbors, similarities)
             ]
@@ -137,7 +146,8 @@ class BoundaryRefinement:
     def crop(self, candidate, duration):
         padding = self.cfg.base_padding + self.cfg.adaptive_padding * (1 - candidate.motion_score)
         return Interval(
-            max(0, candidate.interval.start - padding), min(duration, candidate.interval.end + padding)
+            max(0, candidate.interval.start - padding),
+            min(duration, candidate.interval.end + padding),
         )
 
     def __call__(self, candidate, duration, ground):
@@ -205,7 +215,12 @@ class TrafficRAG:
 
     def __call__(self, duration, motion_scores, caption, embed, ground):
         candidates, smoothed = self.propose(duration, motion_scores)
-        result = {'interval': None, 'candidates': [], 'smoothed_scores': smoothed.tolist(), 'crop': None}
+        result = {
+            'interval': None,
+            'candidates': [],
+            'smoothed_scores': smoothed.tolist(),
+            'crop': None,
+        }
         if not candidates:
             return result
         best = self.verify(candidates, caption, embed)
@@ -229,7 +244,11 @@ class KnowledgeBase:
         if vectors.ndim != 2 or len(vectors) == 0 or not np.isfinite(vectors).all():
             raise ValueError('KB embeddings must be a finite nonempty N,D matrix.')
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        if np.any(norms == 0) or self.labels.shape != (len(vectors),) or not np.isin(self.labels, [0, 1]).all():
+        if (
+            np.any(norms == 0)
+            or self.labels.shape != (len(vectors),)
+            or not np.isin(self.labels, [0, 1]).all()
+        ):
             raise ValueError('KB embeddings need nonzero norms and one binary label each.')
         self.embeddings = vectors / norms
         self.captions = captions if captions is not None else [''] * len(vectors)

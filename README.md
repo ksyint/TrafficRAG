@@ -160,7 +160,7 @@ python traffic.py recipes --validate-all
 python traffic.py build-recipes
 ```
 
-Dry-run and catalog validation inspect settings without loading models. `TrafficRAG.Config` composes proposal, verification, and refinement stages in `trafficrag/grounding.py`. Video decoding and motion optimization share `trafficrag/motion.py`, while `trafficrag/backends.py` owns captioning, embedding, and recorded evidence. `traffic.py` exposes each operation as a subcommand.
+Dry-run and catalog validation inspect settings without loading models. `TrafficRAG.Config` composes proposal, verification, and refinement stages in `trafficrag/pipeline/temporal/grounding.py`. Video decoding and motion optimization share `trafficrag/models/video/motion.py`, while `trafficrag/models/multimodal/backends.py` owns captioning, embedding, and recorded evidence. `traffic.py` exposes each operation as a subcommand.
 
 ## Evaluate intervals
 
@@ -171,3 +171,18 @@ python traffic.py evaluate --data data/predictions.jsonl
 ```
 
 Classification F1 measures event presence. Temporal IoU averages over positive ground-truth videos and assigns zero to missed detections.
+
+## Manifest batches and benchmark reports
+
+The data and runtime packages support stable query identities, drive-group partitions, reusable stage artifacts, and resumable CUDA grounding.
+
+```bash
+python traffic.py manifest --manifest data/red_light/queries.jsonl --domain red-light
+python traffic.py batch --manifest data/red_light/queries.jsonl --motion-checkpoint outputs/red_light/last.pt --kb data/kb_red_light.npz --domain red-light --output outputs/red_light_batch --device cuda
+python traffic.py batch --manifest data/red_light/queries.jsonl --motion-checkpoint outputs/red_light/last.pt --kb data/kb_red_light.npz --domain red-light --output outputs/red_light_batch --device cuda --resume
+python traffic.py report --predictions outputs/red_light_batch/predictions.jsonl --output reports/red_light --bootstrap 1000
+```
+
+The batch runner completes motion scoring before allocating Qwen and ModernBERT. It persists completed records individually and checks the input/model identity when resumed. Retrieved captions and reviewed labels are included in the refinement prompt. Reports retain event-presence metrics, temporal IoU, boundary errors, recording-level intervals, and retrieval evidence.
+
+[Workflow guides](docs/index.md) cover manifest preparation, model caches, domain recipes, and paired evaluation. [Runtime packages](docs/architecture.md) maps the nested source directories to those stages.

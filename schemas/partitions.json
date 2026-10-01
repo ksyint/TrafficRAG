@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Traffic partition report",
+  "type": "object",
+  "required": [
+    "format",
+    "seed",
+    "assignment",
+    "partitions"
+  ],
+  "properties": {
+    "format": {
+      "const": "traffic-partitions-v1"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": [
+          "train",
+          "query",
+          "kb"
+        ]
+      }
+    },
+    "partitions": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

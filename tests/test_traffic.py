@@ -1,8 +1,7 @@
 """Temporal proposal and retrieval invariants."""
 
-import numpy as np
 import pytest
-from trafficrag.grounding import (
+from trafficrag.pipeline.temporal.grounding import (
     Interval,
     TrafficRAG,
     propose_candidates,
@@ -52,7 +51,9 @@ def test_empty_proposal_never_calls_models():
 def test_invalid_local_grounding_is_rejected():
     kb = KnowledgeBase([[1]], [1])
     with pytest.raises(ValueError, match='inside the crop'):
-        TrafficRAG(kb)(2, [0.9], lambda interval: 'x', lambda text: [1], lambda crop, candidate: (-1, 3))
+        TrafficRAG(kb)(
+            2, [0.9], lambda interval: 'x', lambda text: [1], lambda crop, candidate: (-1, 3)
+        )
 
 
 def test_segments_cover_tail_without_exceeding_duration():

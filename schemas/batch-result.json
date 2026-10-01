@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Grounding batch result",
+  "type": "object",
+  "required": [
+    "id",
+    "video_id",
+    "domain",
+    "prediction",
+    "target",
+    "run_digest"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "prediction": {
+      "type": [
+        "object",
+        "array",
+        "null"
+      ]
+    },
+    "target": {
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "run_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "candidates": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": true
+}
