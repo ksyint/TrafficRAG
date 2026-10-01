@@ -392,7 +392,7 @@ def main():
     from trafficrag.data.partitions import partitions_cli
     from trafficrag.data.artifacts import cache_cli
     from trafficrag.runner import batch_cli
-    from trafficrag.experiments.summary import report_cli
+    from trafficrag.experiments.reporting.summary import report_cli
 
     commands = {
         'manifest': manifest_cli,

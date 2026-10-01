@@ -6,7 +6,7 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from trafficrag.experiments.metrics import (
+from trafficrag.experiments.reporting.metrics import (
     bootstrap_events,
     compare_paired,
     confidence_curve,
