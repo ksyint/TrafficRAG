@@ -8,20 +8,20 @@ import math
 import random
 from pathlib import Path
 from dataclasses import asdict
-from trafficrag.models.video.motion import (
+from trafficrag.pipeline.grounding.motion import (
     MotionSystem,
     VideoMAEEncoder,
     VideoSource,
     execution_device,
 )
-from trafficrag.experiments.catalog.recipes import (
+from trafficrag.experiments.benchmarks.recipes import (
     catalog_profiles,
     load_recipe,
     recipes_cli,
     build_recipes_cli,
 )
-from trafficrag.models.multimodal.backends import VideoLanguageSystem, create_backend, load_query
-from trafficrag.pipeline.temporal.grounding import (
+from trafficrag.pipeline.grounding.backends import VideoLanguageSystem, create_backend, load_query
+from trafficrag.pipeline.grounding.grounding import (
     KnowledgeBase,
     Interval,
     TrafficRAG,
@@ -407,11 +407,11 @@ def prepare_cli():
 def main():
     import sys
 
-    from trafficrag.data.manifests.records import manifest_cli
-    from trafficrag.data.manifests.partitions import partitions_cli
-    from trafficrag.data.cache.artifacts import cache_cli
-    from trafficrag.pipeline.batch.execution.runner import batch_cli
-    from trafficrag.evaluation.reports.summary import report_cli
+    from trafficrag.pipeline.grounding.data.records import manifest_cli
+    from trafficrag.pipeline.grounding.data.partitions import partitions_cli
+    from trafficrag.pipeline.grounding.data.artifacts import cache_cli
+    from trafficrag.pipeline.grounding.runner import batch_cli
+    from trafficrag.experiments.benchmarks.summary import report_cli
 
     commands = {
         'manifest': manifest_cli,

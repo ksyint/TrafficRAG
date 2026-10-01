@@ -19,17 +19,20 @@
 - [Paired grounding comparisons](evaluation/paired.md)
 - [Event presence metrics](evaluation/presence.md)
 - [Temporal localization metrics](evaluation/temporal.md)
+- [Red-light events](evaluation/domain-red_light.md)
+- [Left-side blind-spot events](evaluation/domain-blind_left.md)
+- [Right-side blind-spot events](evaluation/domain-blind_right.md)
 
 ## Models
 
-- [Captioning and temporal generation](models/captioning.md)
-- [VideoMAE motion lifecycle](models/motion.md)
-- [Local pretrained artifacts](models/offline.md)
-- [ModernBERT caption retrieval](models/retrieval.md)
+- [Captioning and temporal generation](grounding/captioning.md)
+- [VideoMAE motion lifecycle](grounding/motion.md)
+- [Local pretrained artifacts](grounding/offline.md)
+- [ModernBERT caption retrieval](grounding/retrieval.md)
 
 ## Pipeline
 
-- [Batch grounding and continuation](pipeline/batch-resume.md)
-- [Motion proposals](pipeline/proposals.md)
-- [Adaptive boundary refinement](pipeline/refinement.md)
-- [Semantic verification](pipeline/verification.md)
+- [Batch grounding and continuation](grounding/batch-resume.md)
+- [Motion proposals](grounding/proposals.md)
+- [Adaptive boundary refinement](grounding/refinement.md)
+- [Semantic verification](grounding/verification.md)

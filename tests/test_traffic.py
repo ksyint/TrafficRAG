@@ -1,7 +1,7 @@
 """Temporal proposal and retrieval invariants."""
 
 import pytest
-from trafficrag.pipeline.temporal.grounding import (
+from trafficrag.pipeline.grounding.grounding import (
     Interval,
     TrafficRAG,
     propose_candidates,
