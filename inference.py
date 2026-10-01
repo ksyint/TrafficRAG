@@ -1,5 +1,4 @@
 import argparse
-import importlib
 import json
 from pathlib import Path
 
@@ -7,52 +6,43 @@ import numpy as np
 import torch
 import yaml
 
-from utils.data import RecordedBackend, load_kb, load_query
-from utils.models import BinaryMotionClassifier, VideoMAEEncoder
-from utils.pipeline import KnowledgeBase, TrafficRAG, segment_video
-
-
-def smoke():
-    # Controlled callbacks test plumbing; they do not claim VLM inference.
-    kb = KnowledgeBase(np.array([[1, 0], [0.9, 0.1], [0, 1], [0.1, 0.9]]), [1, 1, 0, 0])
-    pipeline = TrafficRAG(kb, topk=2, smoothing_sigma=0)
-    result = pipeline(8, [0.05, 0.1, 0.9, 0.8, 0.1, 0.05, 0.02],
-                      lambda interval: 'Vehicle crosses a stop line while the signal is red.',
-                      lambda caption: np.array([1.0, 0.0]),
-                      lambda crop, candidate: (2.4 - crop.start, 3.6 - crop.start))
-    result['execution_mode'] = 'synthetic callbacks; no pretrained models'
-    return result
+from trafficrag import TrafficRAG
+from trafficrag.backends import create_backend
+from trafficrag.backends.manifest import load_query
+from trafficrag.experiments import catalog_profiles, load_recipe
+from trafficrag.knowledge import load_kb
+from trafficrag.motion import MotionSystem
+from trafficrag.runtime import execution_device
 
 
 def main(args):
-    if args.smoke:
-        result = smoke()
+    if args.list_profiles:
+        print('\n'.join(str(path) for path in catalog_profiles()))
+        return
+    config = load_recipe(args.profile).to_dict()['pipeline'] if args.profile else yaml.safe_load(Path(args.config).read_text())
+    pipeline_config = TrafficRAG.Config.from_dict(config)
+    if args.dry_run:
+        print(json.dumps({'pipeline': config, 'kb': args.kb, 'query': args.query,
+                          'motion_checkpoint': args.motion_checkpoint, 'backend': args.backend or 'recorded',
+                          'device': args.device}, indent=2))
+        return
+    device = execution_device(args.device)
+    if not args.kb or not args.query:
+        raise ValueError('Inference requires --kb and --query.')
+    query = load_query(args.query)
+    query['device'] = str(device)
+    pipeline = TrafficRAG(load_kb(args.kb), config=pipeline_config)
+    backend = create_backend(args.backend or 'recorded', query)
+    if args.motion_checkpoint:
+        data_path = Path(query['motion_data'])
+        if not data_path.is_absolute():
+            data_path = Path(args.query).parent / data_path
+        features = torch.from_numpy(np.load(data_path, allow_pickle=False)).float()
+        scores = MotionSystem.score(args.motion_checkpoint, features, device)
     else:
-        if not args.kb or not args.query:
-            raise ValueError('--kb and --query are required unless --smoke is selected.')
-        config = yaml.safe_load(Path(args.config).read_text())
-        query = load_query(args.query)
-        pipeline = TrafficRAG(load_kb(args.kb), **config)
-        if args.backend:
-            module, name = args.backend.split(':')
-            backend = getattr(importlib.import_module(module), name)(query)
-        else:
-            backend = RecordedBackend(query)
-        if args.motion_checkpoint:
-            checkpoint = torch.load(args.motion_checkpoint, map_location=args.device, weights_only=True)
-            encoder = VideoMAEEncoder(checkpoint['encoder']) if checkpoint['encoder'] else None
-            model = BinaryMotionClassifier(checkpoint['feature_dim'], encoder).to(args.device).eval()
-            model.load_state_dict(checkpoint['model'])
-            data_path = Path(query['motion_data'])
-            if not data_path.is_absolute():
-                data_path = Path(args.query).parent / data_path
-            x = torch.from_numpy(np.load(data_path, allow_pickle=False)).float()
-            with torch.no_grad():
-                scores = torch.cat([model(chunk.to(args.device)).sigmoid().cpu() for chunk in x.split(8)]).numpy()
-        else:
-            scores = query['motion_scores']
-        result = pipeline(query['duration'], scores, backend.caption, backend.embed, backend.ground)
-        result['execution_mode'] = 'external callbacks' if args.backend else 'recorded model outputs'
+        scores = query['motion_scores']
+    result = pipeline(query['duration'], scores, backend.caption, backend.embed, backend.ground)
+    result['execution_mode'] = 'external callbacks' if args.backend else 'recorded model outputs'
     output = json.dumps(result, indent=2, ensure_ascii=False)
     print(output)
     if args.output:
@@ -62,12 +52,15 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='configs/default.yaml')
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument('--config', default='configs/default.yaml')
+    source.add_argument('--profile', help='Paired JSON motion/grounding recipe.')
+    parser.add_argument('--list-profiles', action='store_true')
+    parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--query')
     parser.add_argument('--kb')
     parser.add_argument('--motion_checkpoint')
     parser.add_argument('--backend', help='module:factory; factory(query) returns caption, embed, ground methods.')
-    parser.add_argument('--device', default='cpu')
-    parser.add_argument('--smoke', action='store_true')
+    parser.add_argument('--device', default='cuda')
     parser.add_argument('--output')
     main(parser.parse_args())

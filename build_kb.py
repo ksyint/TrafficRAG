@@ -4,8 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from utils.models import ModernBERTEncoder
-from utils.pipeline import KnowledgeBase
+from trafficrag.backends.modernbert import ModernBERTEncoder
+from trafficrag.knowledge import KnowledgeBase
 
 
 def main(args):
@@ -39,5 +39,5 @@ if __name__ == '__main__':
     parser.add_argument('--encoder', help='ModernBERT model identifier or local path; frozen masked-mean pooling.')
     parser.add_argument('--exclude_ids', help='Optional newline-separated train/query video IDs.')
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--device', default='cpu')
+    parser.add_argument('--device', default='cuda')
     main(parser.parse_args())

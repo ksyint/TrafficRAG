@@ -4,7 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
-from utils.pipeline import Interval, temporal_iou
+from trafficrag.systems.grounding import Interval
+from trafficrag.metrics import temporal_iou
 
 
 def main(args):
