@@ -1,0 +1,5 @@
+seed: 42
+epochs: 50
+batch_size: 1
+lr: 0.000001
+weight_decay: 0.01

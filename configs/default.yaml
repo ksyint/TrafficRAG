@@ -1,0 +1,8 @@
+motion_threshold: 0.3
+semantic_weight: 0.4
+topk: 10
+smoothing_sigma: 1.0
+base_padding: 0.5
+adaptive_padding: 1.0
+window: 2.0
+stride: 1.0
