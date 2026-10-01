@@ -4,4 +4,4 @@ The selected proposal expands by `base_padding + adaptive_padding * (1 - motion_
 
 Qwen inspects this crop with the candidate caption and reviewed retrieved examples. A no-violation response produces a null interval. Numerical responses must satisfy finite crop-relative start and end times inside the selected crop.
 
-The final record includes both the crop and refined source-video interval. `trafficrag/pipeline/grounding/grounding.py` owns the conversion and validation. Batch result JSON is described by [batch-result.json](../../examples/traffic/batch-result.json).
+The final record includes both the crop and refined source-video interval. `trafficrag/grounding.py` owns the conversion and validation. Batch result JSON is described by [batch-result.json](../../examples/batch-result.json).

@@ -137,7 +137,7 @@ The same `VideoLanguageSystem` and caption prompt serve KB construction and quer
 
 ## Paired experiment recipes
 
-The **240 JSON recipes** pair motion optimization with grounding settings. Each retrieval/fusion folder under `configs/catalog/retrieval` contains 16 combinations of motion threshold, crop padding, and learning rate, identified in the filename:
+The **240 recipes** pair motion optimization with grounding settings. Python recipes assign a literal dictionary to `RECIPE`. JSON recipes and YAML stage settings are also supported. `configs/retrieval` keeps the default grounding pair beside the neighbor-count folders. Filenames identify fusion weight, motion threshold, crop padding, and learning rate:
 
 | Coordinate | Values |
 | --- | --- |
@@ -150,17 +150,17 @@ The **240 JSON recipes** pair motion optimization with grounding settings. Each 
 `traffic.py train --profile` applies the motion section to full VideoMAE fine-tuning. `traffic.py infer --profile` applies the pipeline section to model-backed raw-video inference. Both deserialize native dataclass configurations.
 
 ```bash
-python traffic.py train --profile configs/catalog/retrieval/k10/f04/m03-p050-lr1e6.json \
+python traffic.py train --profile configs/retrieval/k10-f04-m03-p050-lr1e6.json \
   --data data/motion_train.jsonl --domain red-light --device cuda --output outputs/recipe_motion
-python traffic.py infer --profile configs/catalog/retrieval/k10/f04/m03-p050-lr1e6.json \
+python traffic.py infer --profile configs/retrieval/k10-f04-m03-p050-lr1e6.json \
   --video data/query.mp4 --motion_checkpoint outputs/recipe_motion/last.pt \
   --kb data/kb_red_light.npz --device cuda --output outputs/recipe_grounding.json
-python traffic.py infer --profile configs/catalog/retrieval/k10/f04/m03-p050-lr1e6.json --dry-run
+python traffic.py infer --profile configs/retrieval/k10-f04-m03-p050-lr1e6.json --dry-run
 python traffic.py recipes --validate-all
 python traffic.py build-recipes
 ```
 
-Dry-run and catalog validation inspect settings without loading models. `TrafficRAG.Config` composes proposal, verification, and refinement stages in `trafficrag/pipeline/grounding/grounding.py`. Video decoding and motion optimization share `trafficrag/pipeline/grounding/motion.py`, while `trafficrag/pipeline/grounding/backends.py` owns captioning, embedding, and recorded evidence. `traffic.py` exposes each operation as a subcommand.
+Dry-run and catalog validation inspect settings without loading models. `TrafficRAG.Config` composes proposal, verification, and refinement stages in `trafficrag/grounding.py`. Video decoding and motion optimization share `trafficrag/models/motion.py`, while `trafficrag/models/backends.py` owns captioning, embedding, and recorded evidence. `traffic.py` exposes each operation as a subcommand.
 
 ## Evaluate intervals
 

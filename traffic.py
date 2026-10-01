@@ -2,26 +2,26 @@
 
 import argparse
 import json
-import yaml
 import numpy as np
 import math
 import random
 from pathlib import Path
 from dataclasses import asdict
-from trafficrag.pipeline.grounding.motion import (
+from trafficrag.models.motion import (
     MotionSystem,
     VideoMAEEncoder,
     VideoSource,
     execution_device,
 )
-from trafficrag.experiments.benchmarks.recipes import (
+from trafficrag.experiments.recipes import (
     catalog_profiles,
+    read_settings,
     load_recipe,
     recipes_cli,
     build_recipes_cli,
 )
-from trafficrag.pipeline.grounding.backends import VideoLanguageSystem, create_backend, load_query
-from trafficrag.pipeline.grounding.grounding import (
+from trafficrag.models.backends import VideoLanguageSystem, create_backend, load_query
+from trafficrag.grounding import (
     KnowledgeBase,
     Interval,
     TrafficRAG,
@@ -35,11 +35,7 @@ def train_main(args):
     if args.list_profiles:
         print('\n'.join(str(path) for path in catalog_profiles()))
         return
-    options = (
-        asdict(load_recipe(args.profile).motion)
-        if args.profile
-        else yaml.safe_load(Path(args.config).read_text())
-    )
+    options = asdict(load_recipe(args.profile).motion) if args.profile else read_settings(args.config)
     for name in ('seed', 'epochs', 'batch_size', 'lr'):
         value = getattr(args, name)
         if value is not None:
@@ -77,7 +73,7 @@ def train_cli():
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group()
     source.add_argument('--config', default='configs/train.yaml')
-    source.add_argument('--profile', help='Paired JSON motion/grounding recipe.')
+    source.add_argument('--profile', help='Paired Python or JSON motion/grounding recipe.')
     parser.add_argument('--list-profiles', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--data', help='JSONL: video, start, end, label, optional domain.')
@@ -135,10 +131,7 @@ def build_kb_main(args):
             caption = system.caption(video, interval, args.domain)
         captions.append(caption)
     embeddings = np.concatenate(
-        [
-            system.embed(captions[i : i + args.batch_size])
-            for i in range(0, len(rows), args.batch_size)
-        ]
+        [system.embed(captions[i : i + args.batch_size]) for i in range(0, len(rows), args.batch_size)]
     )
     kb = KnowledgeBase(embeddings, [row['label'] for row in rows], captions, ids)
     output = Path(args.output)
@@ -164,9 +157,7 @@ def build_kb_main(args):
         )
         + '\n'
     )
-    print(
-        json.dumps({'entries': len(rows), 'dimension': embeddings.shape[1], 'output': str(output)})
-    )
+    print(json.dumps({'entries': len(rows), 'dimension': embeddings.shape[1], 'output': str(output)}))
 
 
 def build_kb_cli():
@@ -196,11 +187,7 @@ def inference_main(args):
     if args.list_profiles:
         print('\n'.join(str(path) for path in catalog_profiles()))
         return
-    config = (
-        load_recipe(args.profile).to_dict()['pipeline']
-        if args.profile
-        else yaml.safe_load(Path(args.config).read_text())
-    )
+    config = load_recipe(args.profile).to_dict()['pipeline'] if args.profile else read_settings(args.config)
     pipeline_config = TrafficRAG.Config.from_dict(config)
     language_config = VideoLanguageSystem.Config(
         vlm=args.vlm,
@@ -260,9 +247,7 @@ def inference_main(args):
         duration, scores = query['duration'], query['motion_scores']
         mode = 'recorded model outputs' if not args.backend else 'external callbacks'
     else:
-        raise ValueError(
-            'Supply --video for model-backed inference or --query for recorded outputs.'
-        )
+        raise ValueError('Supply --video for model-backed inference or --query for recorded outputs.')
     result = pipeline(duration, scores, backend.caption, backend.embed, backend.ground)
     result.update(execution_mode=mode, domain=args.domain)
     output = json.dumps(result, indent=2, ensure_ascii=False)
@@ -276,12 +261,10 @@ def inference_cli():
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group()
     source.add_argument('--config', default='configs/default.yaml')
-    source.add_argument('--profile', help='Paired JSON motion/grounding recipe.')
+    source.add_argument('--profile', help='Paired Python or JSON motion/grounding recipe.')
     inputs = parser.add_mutually_exclusive_group()
     inputs.add_argument('--video', help='Raw dashcam video file.')
-    inputs.add_argument(
-        '--query', help='Recorded-output JSON for inspecting saved model predictions.'
-    )
+    inputs.add_argument('--query', help='Recorded-output JSON for inspecting saved model predictions.')
     parser.add_argument('--list-profiles', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--kb')
@@ -388,9 +371,7 @@ def prepare_splits_main(args):
     output.mkdir(parents=True, exist_ok=True)
     for name, entries in splits.items():
         (output / f'{name}.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in entries))
-    (output / 'train_query_ids.txt').write_text(
-        ''.join(v + '\n' for v in videos if v not in knowledge)
-    )
+    (output / 'train_query_ids.txt').write_text(''.join(v + '\n' for v in videos if v not in knowledge))
     print(json.dumps({name: len(entries) for name, entries in splits.items()}))
 
 
@@ -407,11 +388,11 @@ def prepare_cli():
 def main():
     import sys
 
-    from trafficrag.pipeline.grounding.data.records import manifest_cli
-    from trafficrag.pipeline.grounding.data.partitions import partitions_cli
-    from trafficrag.pipeline.grounding.data.artifacts import cache_cli
-    from trafficrag.pipeline.grounding.runner import batch_cli
-    from trafficrag.experiments.benchmarks.summary import report_cli
+    from trafficrag.data.records import manifest_cli
+    from trafficrag.data.partitions import partitions_cli
+    from trafficrag.data.artifacts import cache_cli
+    from trafficrag.runner import batch_cli
+    from trafficrag.experiments.summary import report_cli
 
     commands = {
         'manifest': manifest_cli,
