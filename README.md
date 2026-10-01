@@ -137,7 +137,7 @@ The same `VideoLanguageSystem` and caption prompt serve KB construction and quer
 
 ## Paired experiment recipes
 
-The **240 recipes** pair motion optimization with grounding settings. Python recipes assign a literal dictionary to `RECIPE`. JSON recipes and YAML stage settings are also supported. `configs/retrieval` keeps the default grounding pair beside the neighbor-count folders. Filenames identify fusion weight, motion threshold, crop padding, and learning rate:
+The **240 recipes** pair motion optimization with grounding settings. Python recipes assign a literal dictionary to `RECIPE`. JSON recipes and YAML stage settings are also supported. `configs/retrieval` keeps the default grounding pair beside the neighbor-count folders. Each neighbor count groups fusion settings, with threshold subgroups for the ten-neighbor, 0.4-fusion setting. Representative recipes remain beside those subgroups. Filenames identify fusion weight, motion threshold, crop padding, and learning rate:
 
 | Coordinate | Values |
 | --- | --- |

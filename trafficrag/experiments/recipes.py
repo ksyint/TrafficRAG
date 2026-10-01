@@ -81,7 +81,7 @@ def profile_identity(path):
     if parts[0].startswith('k'):
         topk, fusion, threshold, padding, learning_rate = parts
     else:
-        topk = path.parent.name
+        topk = next(parent.name for parent in path.parents if parent.name.startswith('k') and parent.name[1:].isdigit())
         fusion, threshold, padding, learning_rate = parts
     return f'{topk}/{fusion}/{threshold}-{padding}-{learning_rate}'
 
@@ -90,7 +90,13 @@ def recipe_path(topk, fusion, threshold, padding, learning_rate):
     name = f'{fusion}-{threshold}-{padding}-{learning_rate}'
     if (topk, fusion, threshold, padding) == (10, 'f04', 'm03', 'p050'):
         return CATALOG / f'k{topk:02d}-{name}'
-    return CATALOG / f'k{topk:02d}' / name
+    folder = CATALOG / f'k{topk:02d}'
+    if (fusion, threshold, padding) == ('f04', 'm03', 'p025'):
+        return folder / name
+    folder /= fusion
+    if topk == 10 and fusion == 'f04' and (threshold, padding) != ('m02', 'p050'):
+        folder /= threshold
+    return folder / name
 
 
 RETRIEVAL = (1, 3, 5, 10, 20)
