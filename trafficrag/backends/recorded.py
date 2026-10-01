@@ -7,7 +7,7 @@ from .registry import register_backend
 class RecordedBackend:
     """Replay externally computed caption/embedding/grounding outputs exactly.
 
-    Interval matching is strict; no nearest-caption substitution is performed.
+    Interval matching is strict. No nearest-caption substitution is performed.
     """
     def __init__(self, records):
         self.captions = records['captions']

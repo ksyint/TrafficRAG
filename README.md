@@ -1,122 +1,173 @@
 # TrafficRAG
 
 **TrafficRAG: Temporal Grounding for Traffic Violations via Retrieval-Augmented Generation**
-Soo Yong Kim, Joonyoung Kim, Jaewon Lee, Seong Wook Lee, Tae-San Eom, Jeonghun Chae. WACV Workshops 2026, pp. 66–74.
+WACV Workshops 2026, pp. 66–74.
 
 [Paper](https://openaccess.thecvf.com/content/WACV2026W/RWS/html/Kim_TrafficRAG_Temporal_Grounding_for_Traffic_Violations_via_Retrieval-Augmented_Generation_WACVW_2026_paper.html)
 
-A configurable traffic-grounding system built from motion proposals, caption retrieval, semantic verification, and crop-relative VLM refinement.
+A raw-video pipeline using **VideoMAE V2 Small** for motion proposals, **Qwen3-VL-8B-Instruct** for captioning and temporal refinement, and frozen **ModernBERT-base** for caption retrieval. Model weights download automatically when their stage first runs.
 
-## Three-stage inference
+## Install
 
-1. **Proposal:** score overlapping 2-second segments at 1-second stride, apply Gaussian smoothing, and group consecutive probabilities above the motion threshold.
-2. **Verification:** caption each candidate, retrieve cosine-nearest caption embeddings, and combine their positive-label ratio with motion confidence.
-3. **Refinement:** choose the strongest candidate, pad it by `base_padding + adaptive_padding * (1 - motion_confidence)`, and translate the backend's crop-relative prediction to video time.
-
-The `TrafficRAG.Config` dataclass composes three stage configurations. `trafficrag/systems/grounding/` implements the operators; `trafficrag/backends/` registers model-output providers. `MotionSystem` separately manages binary encoder optimization, checkpointing, and segment scoring.
-
-## Install and prepare encoders
-
-Use a CUDA-enabled PyTorch build. Neural runners accept `cuda` or `cuda:N`; caption retrieval and timestamp arithmetic use host NumPy arrays.
+Use Python 3.10+ with CUDA-enabled PyTorch:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-models.txt
+pip install -r requirements.txt
 ```
 
-Train one binary encoder per domain: `red-light`, `blind-spot-left`, or `blind-spot-right`. An NPZ training set contains binary `labels` of shape `N` and either cached `features` (`N,D`) or video `pixels` (`N,T,C,H,W`).
+Model runners require `cuda` or `cuda:N`. Video decoding uses PyAV. VideoMAE optimization and Qwen generation use CUDA BF16. The Qwen model is placed entirely on the selected GPU. Provision GPU memory for its approximately 9-billion-parameter checkpoint, ModernBERT, and video activations. Inference releases the motion model before allocating Qwen.
+
+## Automatic and local weight loading
+
+| Runtime stage | Published initialization | Loader |
+| --- | --- | --- |
+| Binary motion encoder | [OpenGVLab/VideoMAE2](https://huggingface.co/OpenGVLab/VideoMAE2), `distill/vit_s_k710_dl_from_giant.pth` | `hf_hub_download`, strict ViT-S parameter loading |
+| Captions and boundary refinement | [Qwen/Qwen3-VL-8B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) | `Qwen3VLForConditionalGeneration` and `AutoProcessor` |
+| Caption vectors | [answerdotai/ModernBERT-base](https://huggingface.co/answerdotai/ModernBERT-base) | frozen `AutoModel`, attention-mask mean pooling |
+
+The VideoMAE release is the official Kinetics-710 distilled **Small** checkpoint: 384-dimensional features, 12 transformer layers, six heads, tubelet size two, and spatial patch size 16. Its released classification head is replaced with one learned binary head per traffic domain. Every backbone parameter loads strictly. Fine-tuning uses 30 uniformly sampled frames at 350×350, sinusoidal token positions, ImageNet normalization, and activation checkpointing.
+
+`--cache-dir weights/cache` redirects the Hugging Face cache. Otherwise it uses `~/.cache/huggingface/hub/`. The corresponding cache directories are `models--OpenGVLab--VideoMAE2`, `models--Qwen--Qwen3-VL-8B-Instruct`, and `models--answerdotai--ModernBERT-base`. For named local destinations:
 
 ```bash
-python train.py --data data/red_light_features.npz --domain red-light \
-  --output outputs/red_light --device cuda
-python train.py --data data/red_light_pixels.npz --encoder /path/to/compatible-videomae \
-  --domain red-light --device cuda --output outputs/red_light_full
+hf download OpenGVLab/VideoMAE2 distill/vit_s_k710_dl_from_giant.pth --local-dir weights/videomaev2
+hf download Qwen/Qwen3-VL-8B-Instruct --local-dir weights/qwen3-vl
+hf download answerdotai/ModernBERT-base --local-dir weights/modernbert
 ```
 
-The encoder adapter accepts a Hugging Face VideoMAE model with `pixel_values` input and `last_hidden_state` output. Use pixel normalization, frame sampling, resolution, and positional embeddings matching the checkpoint. The provided training configuration selects 50 epochs, batch size 1 and learning rate `1e-6`.
+Use `train.py --weights weights/videomaev2/distill/vit_s_k710_dl_from_giant.pth --offline`, and pass `--vlm weights/qwen3-vl --text-encoder weights/modernbert --offline` to KB construction and inference. The motion checkpoint produced by training contains the entire fine-tuned encoder and binary head, so inference restores it without downloading its foundation weights again. The downloadable VideoMAE weights provide action-recognition initialization. The traffic-domain checkpoint is trained on the annotated segments supplied below.
+
+## Prepare dashcam videos and annotations
+
+Start with acquired dashcam recordings and human-reviewed event intervals. Use a separate annotation manifest for each domain. The criteria are stop-line crossing during a red signal (`red-light`), or a pedestrian/road user on a collision trajectory from the named side (`blind-spot-left` / `blind-spot-right`). Mark positive intervals and visually similar safe intervals with label 0. Include both labels in each domain's training and held-out data.
+
+```text
+data/
+  videos/
+    dashcam_001.mp4
+    dashcam_002.mp4
+  annotations_red_light.jsonl
+  red_light/
+    motion_train.jsonl
+    validation.jsonl
+    kb.jsonl
+    train_query_ids.txt
+```
+
+Each annotation uses source-video seconds and a stable `video_id`. Reuse that ID for every segment from the same recording:
+
+```json
+{"video_id":"dashcam_001","video":"videos/dashcam_001.mp4","start":1.0,"end":3.0,"label":1,"domain":"red-light"}
+{"video_id":"dashcam_001","video":"videos/dashcam_001.mp4","start":5.0,"end":7.0,"label":0,"domain":"red-light"}
+```
+
+Split before motion training or KB construction. The helper groups all segments by `video_id`, checks path/ID consistency, and emits separate training, validation/query, and KB manifests:
+
+```bash
+python tools/prepare_splits.py --annotations data/annotations_red_light.jsonl \
+  --output data/red_light --validation-fraction 0.15 --kb-fraction 0.15 --seed 42
+python train.py --data data/red_light/motion_train.jsonl --domain red-light \
+  --output outputs/red_light --device cuda
+python build_kb.py --input data/red_light/kb.jsonl --domain red-light \
+  --exclude_ids data/red_light/train_query_ids.txt --output data/kb_red_light.npz --device cuda
+```
+
+Keep recordings from the same drive/driver in one partition when preparing the source manifests. Use validation videos for grounding evaluation. Their positive annotation boundaries supply `target` intervals for `eval.py`. Preserve multiple-event annotations when preparing the ground truth and choose the intended target event for each single-interval query.
+
+Native preprocessing decodes actual presentation timestamps, uniformly samples each interval, resizes RGB frames to 350×350, and applies ImageNet mean/std before VideoMAE. Qwen separately samples its crop with timestamp metadata and its own processor. No extracted frame folder is required. For codec conversion, install FFmpeg and run:
+
+```bash
+ffmpeg -i dashcam.mov -map 0:v:0 -an -c:v libx264 -pix_fmt yuv420p data/videos/dashcam.mp4
+```
+
+## Train domain-specific motion models
+
+Prepare JSONL with a video path, interval in seconds, binary label, and optional domain. Relative paths resolve from the manifest directory:
+
+```json
+{"video":"videos/clip_001.mp4","start":1.0,"end":3.0,"label":1,"domain":"red-light"}
+{"video":"videos/clip_002.mp4","start":0.0,"end":2.0,"label":0,"domain":"red-light"}
+```
+
+```bash
+python train.py --data data/motion_train.jsonl --domain red-light \
+  --cache-dir weights/cache --output outputs/red_light --device cuda
+python train.py --data data/motion_train.jsonl --domain blind-spot-left \
+  --cache-dir weights/cache --output outputs/blind_left --device cuda
+python train.py --data data/motion_train.jsonl --domain blind-spot-right \
+  --cache-dir weights/cache --output outputs/blind_right --device cuda
+```
+
+Each run fine-tunes the full released VideoMAE backbone with binary cross-entropy. The default schedule is 50 epochs, batch size one, and learning rate `1e-6`. `MotionSystem` manages training, strict checkpoint restoration, and raw-video segment scoring. Each output directory receives `last.pt` and `metrics.json`.
 
 ## Build caption memory
 
-Prepare held-out segments separated from the motion-training and query videos. Each JSONL row contains an ID, caption, binary label, and an optional precomputed embedding:
+Use held-out segments, including hard negatives, separated from motion-training and query videos. Build one memory per domain:
 
 ```json
-{"id":"kb_clip_001", "caption":"The vehicle stops before the line at a red signal.", "label":0, "embedding":[0.1,0.9]}
+{"id":"kb_001_segment0","video_id":"kb_001","video":"videos/kb_001.mp4","start":0.0,"end":2.0,"label":0}
+{"id":"kb_002_segment0","video_id":"kb_002","video":"videos/kb_002.mp4","start":2.0,"end":4.0,"label":1}
 ```
 
 ```bash
-python build_kb.py --input data/kb.jsonl --output data/kb.npz --exclude_ids data/train_query_ids.txt
-python build_kb.py --input data/kb_captions.jsonl --encoder /path/to/modernbert \
-  --output data/kb.npz --device cuda
+python build_kb.py --input data/kb_red_light.jsonl --domain red-light \
+  --output data/kb_red_light.npz --exclude_ids data/train_query_ids.txt \
+  --cache-dir weights/cache --device cuda
 ```
 
-Use the same captioning prompt, text encoder and pooling for memory entries and queries. The ModernBERT adapter uses attention-masked mean pooling. `--exclude_ids` checks exact source-ID separation.
+Qwen captions each segment. Frozen ModernBERT embeds those captions with attention-masked mean pooling. Optional `caption` fields reuse previously generated captions. `--exclude_ids` checks `video_id`, falling back to segment `id` when absent. The output includes the memory NPZ and a `.models.json` record of the domain, checkpoint paths, pooling, and similarity. Use the same text-encoder path/ID and caption model for KB and queries.
 
-## Ground a video
-
-The recorded backend accepts externally computed captions, embeddings and local timestamps in a query manifest:
-
-```json
-{
-  "duration":2.0,
-  "motion_scores":[0.9],
-  "captions":[{"start":0.0,"end":2.0,"caption":"A vehicle crosses at red.","embedding":[1.0,0.0]}],
-  "refinements":[{"start":0.0,"end":2.0,"local_interval":[0.4,1.2]}]
-}
-```
-
-Provide one exact caption record for each candidate interval and one refinement record for the selected crop.
+## Ground a raw video
 
 ```bash
-python inference.py --kb data/kb.npz --query data/query.json \
-  --output outputs/prediction.json --device cuda
+python inference.py --video data/query.mp4 --domain red-light \
+  --motion_checkpoint outputs/red_light/last.pt --kb data/kb_red_light.npz \
+  --cache-dir weights/cache --output outputs/prediction.json --device cuda
 ```
 
-For CUDA motion scoring, replace `motion_scores` with `motion_data`, a `.npy` feature/pixel array containing one row per segment, and pass `--motion_checkpoint outputs/red_light/last.pt`. Relative paths resolve from the manifest directory.
+1. VideoMAE scores overlapping two-second windows at one-second stride. Gaussian smoothing and threshold `0.3` produce contiguous candidate intervals.
+2. Qwen captions each candidate. ModernBERT retrieves ten nearest KB captions. The positive-label ratio contributes `0.4` and motion confidence contributes `0.6` to verification.
+3. The strongest candidate is padded by `0.5 + (1 - motion_confidence)` seconds per side. Qwen inspects this crop and returns JSON boundaries relative to the crop. Timestamp metadata preserves decoded frame times, and validated local boundaries are converted to full-video seconds.
 
-A live backend is selected with `--backend my_backend:create_backend`. The factory receives the query manifest with its `device` field set to the selected CUDA device and returns an object implementing:
+The same `VideoLanguageSystem` and caption prompt serve KB construction and query inference. The output JSON includes raw stage evidence, smoothed scores, retrieved IDs, selected crop, and final interval. A VLM response declaring no violation produces a null interval.
 
-```python
-caption(interval) -> str
-embed(caption) -> numpy.ndarray
-ground(crop, candidate) -> (local_start, local_end) or None
-```
-
-The backend handles video decoding, CUDA VLM invocation, and crop-relative prediction. The candidate object carries captions, retrieved IDs/labels/similarities, and motion/fusion scores. Final boundaries are validated against the crop and video duration.
+`--query recorded.json` remains available to inspect previously captured motion/caption/refinement outputs. Raw-video inference uses the real model stages by default through `--video`.
 
 ## Paired experiment recipes
 
-The catalog contains **240 JSON recipes**, each pairing a grounding configuration with the motion-training configuration used for that experiment:
+The **240 JSON recipes** pair motion optimization with grounding settings:
 
-| Recipe coordinate | Values |
+| Coordinate | Values |
 | --- | --- |
 | Retrieved neighbors | 1, 3, 5, 10, 20 |
 | Semantic fusion weight | 0.2, 0.4, 0.6 |
 | Motion threshold | 0.2, 0.3, 0.4, 0.5 |
 | Base crop padding | 0.25, 0.50 seconds |
-| Binary model learning rate | `1e-6`, `5e-6` |
+| Binary-model learning rate | `1e-6`, `5e-6` |
 
-`train.py --profile` consumes the recipe's `motion` section. `inference.py --profile` consumes its `pipeline` section. Each recipe is parsed into the native dataclass configurations.
+`train.py --profile` applies the motion section to full VideoMAE fine-tuning. `inference.py --profile` applies the pipeline section to model-backed raw-video inference. Both deserialize native dataclass configurations.
 
 ```bash
-python -m trafficrag.experiments
-python -m trafficrag.experiments --validate-all
 python train.py --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json \
-  --data data/red_light_features.npz --domain red-light --device cuda --output outputs/recipe_motion
+  --data data/motion_train.jsonl --domain red-light --device cuda --output outputs/recipe_motion
 python inference.py --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json \
-  --kb data/kb.npz --query data/query.json --device cuda --output outputs/recipe_grounding.json
+  --video data/query.mp4 --motion_checkpoint outputs/recipe_motion/last.pt \
+  --kb data/kb_red_light.npz --device cuda --output outputs/recipe_grounding.json
 python inference.py --profile configs/catalog/traffic/retrieval/k10/f04/m03/p050/lr1e6.json --dry-run
+python -m trafficrag.experiments --validate-all
 python -m trafficrag.experiments.build
 ```
 
-Dry-run and catalog validation inspect settings without loading encoders or running inference. `configs/default.yaml` remains available for directly configuring the three grounding stages.
+Dry-run and catalog validation inspect settings without loading models. `TrafficRAG.Config` composes proposal, verification, and refinement stages under `trafficrag/systems/grounding/`. Separate model lifecycle classes live in `motion/` and `backends/`.
 
-## Evaluation
+## Evaluate intervals
 
-Create JSONL rows with `prediction` and `target`, each `[start,end]` or `null`:
+Provide JSONL rows containing `prediction` and `target`, each `[start,end]` or `null`:
 
 ```bash
 python eval.py --data data/predictions.jsonl
 ```
 
-Classification F1 measures event presence. Temporal IoU averages over positive ground-truth videos and assigns zero to missed detections. Prediction JSON includes smoothed motion scores, candidate retrieval evidence, the selected crop and final video timestamps.
+Classification F1 measures event presence. Temporal IoU averages over positive ground-truth videos and assigns zero to missed detections.

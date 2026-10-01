@@ -19,7 +19,7 @@ def test_semantics_selects_candidate_and_padding_uses_motion():
         seen['crop'] = crop
         return (0.2, 0.8)
     result = pipeline(8, [0.9, 0.1, 0.1, 0.1, 0.6, 0.1, 0.1], caption, embed, ground)
-    # First score=.54; second=.4 + .6*.6=.76, so second must win.
+    # First score=.54. Second=.4 + .6*.6=.76, so second must win.
     assert result['selected_score'] == pytest.approx(0.76)
     assert seen['crop'].start == pytest.approx(4 - (0.5 + 0.4))
     assert result['interval']['start'] == pytest.approx(3.3)

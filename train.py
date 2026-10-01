@@ -3,10 +3,10 @@ from pathlib import Path
 from dataclasses import asdict
 import json
 
-import torch
 import yaml
 
 from trafficrag.motion import MotionSystem
+from trafficrag.motion.encoder import VideoMAEEncoder
 from trafficrag.experiments import catalog_profiles, load_recipe
 
 
@@ -19,17 +19,16 @@ def main(args):
         value = getattr(args, name)
         if value is not None:
             options[name] = value
-    if not args.data and not args.profile and args.lr is None:
-        options['lr'] = 0.03
     config = MotionSystem.Config(**options)
+    encoder = VideoMAEEncoder.Config(weights=args.weights or '', cache_dir=args.cache_dir or '',
+                                     offline=args.offline, frames=args.frames, image_size=args.image_size)
     if args.dry_run:
-        print(json.dumps({'motion': asdict(config), 'domain': args.domain, 'encoder': args.encoder,
+        print(json.dumps({'motion': asdict(config), 'domain': args.domain, 'encoder': asdict(encoder),
                           'data': args.data, 'device': args.device}, indent=2))
         return
-    if args.profile and not args.data:
-        raise ValueError('A motion recipe requires --data with annotated segment features or pixels.')
-    torch.set_num_threads(args.threads)
-    system = MotionSystem(config, args.domain, args.encoder, args.device)
+    if not args.data:
+        raise ValueError('--data must name an annotated video-segment JSONL manifest.')
+    system = MotionSystem(config, args.domain, encoder, args.device)
     history = system.fit(args.data)
     system.save(args.output, history)
 
@@ -41,14 +40,17 @@ if __name__ == '__main__':
     source.add_argument('--profile', help='Paired JSON motion/grounding recipe.')
     parser.add_argument('--list-profiles', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
-    parser.add_argument('--data', help='NPZ: features N,D or pixels N,T,C,H,W and labels N.')
-    parser.add_argument('--encoder', help='Compatible VideoMAE model ID; enables full encoder fine-tuning.')
+    parser.add_argument('--data', help='JSONL: video, start, end, label, optional domain.')
+    parser.add_argument('--weights', help='Local official ViT-S .pth file or local OpenGVLab/VideoMAE2 snapshot.')
+    parser.add_argument('--cache-dir')
+    parser.add_argument('--offline', action='store_true')
+    parser.add_argument('--frames', type=int, default=30)
+    parser.add_argument('--image-size', type=int, default=350)
     parser.add_argument('--domain', choices=['red-light', 'blind-spot-left', 'blind-spot-right'], default='red-light')
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--lr', type=float)
     parser.add_argument('--seed', type=int)
     parser.add_argument('--device', default='cuda')
-    parser.add_argument('--threads', type=int, default=2)
     parser.add_argument('--output', default='outputs/motion')
     main(parser.parse_args())
