@@ -66,12 +66,12 @@ def load_recipe(path):
 
 def catalog_profiles():
     paths = sorted(
-        (path for path in CATALOG.rglob('*') if path.is_file() and path.suffix in ('.json', '.py')),
+        (path for path in CATALOG.rglob('*') if path.is_file() and path.suffix in ('.json', '.py', '.yaml', '.yml')),
         key=profile_identity,
     )
     keys = [profile_identity(path) for path in paths]
     if len(keys) != len(set(keys)):
-        raise ValueError('A recipe may have only one JSON or Python file.')
+        raise ValueError('A recipe may have only one configuration file.')
     return paths
 
 
@@ -133,16 +133,19 @@ def build_main():
         }
         recipe = ExperimentRecipe.from_dict(values)
         path = recipe_path(topk, fusion, threshold, padding, learning_rate)
-        path = path.with_suffix('.py' if index < 108 else '.json')
+        path = path.with_suffix('.py' if index < 98 else '.yaml' if index < 108 else '.json')
         path.parent.mkdir(parents=True, exist_ok=True)
         values = recipe.to_dict()
         source = (
             'RECIPE = ' + pformat(values, width=100, sort_dicts=False)
             if path.suffix == '.py'
+            else yaml.safe_dump(values, sort_keys=False) if path.suffix == '.yaml'
             else json.dumps(values, indent=2)
         )
         path.write_text(source + '\n')
-        path.with_suffix('.json' if path.suffix == '.py' else '.py').unlink(missing_ok=True)
+        for suffix in ('.py', '.json', '.yaml'):
+            if suffix != path.suffix:
+                path.with_suffix(suffix).unlink(missing_ok=True)
         count += 1
     print(f'Built {count} paired motion/grounding recipes.')
 

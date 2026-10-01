@@ -239,6 +239,8 @@ class KnowledgeBase:
         if np.any(norms == 0) or self.labels.shape != (len(vectors),) or not np.isin(self.labels, [0, 1]).all():
             raise ValueError('KB embeddings need nonzero norms and one binary label each.')
         self.embeddings = vectors / norms
+        self.search_index = None
+        self.device = "cuda"
         self.captions = captions if captions is not None else [''] * len(vectors)
         self.ids = ids if ids is not None else [str(i) for i in range(len(vectors))]
         if len(self.captions) != len(vectors) or len(self.ids) != len(vectors):
@@ -254,9 +256,13 @@ class KnowledgeBase:
             raise ValueError('Query embedding shape/value mismatch.')
         if k < 1:
             raise ValueError('K must be positive.')
-        similarities = self.embeddings @ (query / np.linalg.norm(query))
-        order = np.argsort(-similarities, kind='stable')[: min(k, len(similarities))]
-        return order, similarities[order], float(self.labels[order].mean())
+        if self.search_index is None:
+            from trafficrag.retrieval.index import CudaCosineIndex
+
+            self.search_index = CudaCosineIndex(self.embeddings, self.device)
+        order, similarities = self.search_index.search(query, k).one()
+        return order, similarities, float(self.labels[order].mean())
+
 
 
 def load_kb(path):

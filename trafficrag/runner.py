@@ -127,6 +127,7 @@ class BatchGrounder:
             offline=self.language_config.offline,
             revision=self.language_config.revision,
         )
+        system.text_encoder.configure()
         identity = dict(asdict(self.language_config))
         identity['resolved_vlm'] = getattr(system.model.config, '_commit_hash', None)
         identity['resolved_text'] = getattr(system.text_encoder.model.config, '_commit_hash', None)
@@ -162,7 +163,9 @@ class BatchGrounder:
         pending = [record for record in self.manifest if record.identifier not in self.completed]
         if pending:
             self.motion_pass(pending)
-            pipeline = TrafficRAG(load_kb(self.knowledge_base), config=self.config)
+            memory = load_kb(self.knowledge_base)
+            memory.device = str(self.device)
+            pipeline = TrafficRAG(memory, config=self.config)
             system = identity = None
             for record in pending:
                 start = time.perf_counter()

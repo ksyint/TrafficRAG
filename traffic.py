@@ -221,7 +221,9 @@ def inference_main(args):
             raise ValueError('Knowledge-base domain must match --domain.')
         if args.video and metadata['models']['text_encoder'] != args.text_encoder:
             raise ValueError('Use the same --text-encoder path/ID for KB construction and queries.')
-    pipeline = TrafficRAG(load_kb(args.kb), config=pipeline_config)
+    memory = load_kb(args.kb)
+    memory.device = str(device)
+    pipeline = TrafficRAG(memory, config=pipeline_config)
     if args.video:
         if not args.motion_checkpoint:
             raise ValueError('Video inference requires a domain-trained --motion_checkpoint.')
@@ -393,8 +395,30 @@ def main():
     from trafficrag.data.artifacts import cache_cli
     from trafficrag.runner import batch_cli
     from trafficrag.experiments.summary import report_cli
+    from trafficrag.experiments.memory import memory_build_cli, memory_audit_cli, memory_export_cli
+    from trafficrag.experiments.memory import memory_merge_cli, memory_subset_cli, retrieval_query_cli
+    from trafficrag.experiments.workflows import (
+        motion_windows_cli, video_audit_cli, motion_fit_cli, grounding_report_cli,
+        threshold_cli, response_audit_cli, frame_audit_cli,
+        prepare_models_cli, evaluate_motion_cli,
+    )
 
     commands = {
+        'prepare-models': prepare_models_cli,
+        'evaluate-motion': evaluate_motion_cli,
+        'memory-merge': memory_merge_cli,
+        'memory-subset': memory_subset_cli,
+        'retrieval-query': retrieval_query_cli,
+        'memory-build': memory_build_cli,
+        'memory-audit': memory_audit_cli,
+        'memory-export': memory_export_cli,
+        'motion-windows': motion_windows_cli,
+        'audit-videos': video_audit_cli,
+        'fit-motion': motion_fit_cli,
+        'report-detailed': grounding_report_cli,
+        'threshold': threshold_cli,
+        'audit-responses': response_audit_cli,
+        'audit-frames': frame_audit_cli,
         'manifest': manifest_cli,
         'partitions': partitions_cli,
         'cache': cache_cli,

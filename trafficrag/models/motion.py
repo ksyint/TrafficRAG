@@ -264,8 +264,8 @@ class MotionSystem:
         self.model = None
         self.optimizer = None
 
-    def configure(self):
-        encoder = VideoMAEEncoder(self.encoder_cfg)
+    def configure(self, initialize=True):
+        encoder = VideoMAEEncoder(self.encoder_cfg, initialize=initialize)
         self.feature_dim = encoder.feature_dim
         self.model = BinaryMotionClassifier(self.feature_dim, encoder).to(self.device)
         self.optimizer = torch.optim.AdamW(

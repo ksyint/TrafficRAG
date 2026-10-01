@@ -4,10 +4,13 @@ import importlib
 import torch
 import numpy as np
 import json
-import re
 from trafficrag.models.motion import execution_device
 from dataclasses import dataclass
 from pathlib import Path
+from trafficrag.models.embeddings import TextEncoder, TextEncoderConfig
+from trafficrag.models.prompts import DOMAIN_RULES, caption_prompt, grounding_prompt
+from trafficrag.models.responses import parse_grounding
+from trafficrag.data.decoding import timestamp_metadata
 
 _BACKENDS = {}
 
@@ -36,7 +39,7 @@ def create_backend(name, query):
     return backend
 
 
-class ModernBERTEncoder:
+class ModernBERTEncoder(TextEncoder):
     def __init__(
         self,
         checkpoint='answerdotai/ModernBERT-base',
@@ -45,29 +48,8 @@ class ModernBERTEncoder:
         offline=False,
         revision='main',
     ):
-        device = execution_device(device)
-        from transformers import AutoModel
-        from transformers import AutoTokenizer
-
-        options = dict(cache_dir=cache_dir, local_files_only=offline, revision=revision)
-        self.tokenizer = AutoTokenizer.from_pretrained(checkpoint, **options)
-        self.model = (
-            AutoModel.from_pretrained(checkpoint, attn_implementation='sdpa', **options)
-            .to(device)
-            .eval()
-            .requires_grad_(False)
-        )
-        self.device = device
-
-    def __call__(self, captions):
-        batch = self.tokenizer(
-            captions, padding=True, truncation=True, max_length=8192, return_tensors='pt'
-        ).to(self.device)
-        with torch.inference_mode():
-            hidden = self.model(**batch).last_hidden_state
-            mask = batch['attention_mask'][..., None]
-            pooled = (hidden * mask).sum(1) / mask.sum(1).clamp_min(1)
-        return pooled.float().cpu().numpy()
+        config = TextEncoderConfig(checkpoint, revision, cache_dir, offline)
+        super().__init__(config, device)
 
 
 @register_backend("recorded")
@@ -105,13 +87,6 @@ class RecordedBackend:
         if len(rows) != 1:
             raise ValueError(f'Exactly one refinement record is required for crop {crop}.')
         return rows[0]['local_interval']
-
-
-DOMAIN_RULES = {
-    'red-light': 'The ego vehicle crosses the stop line while the relevant traffic signal is red.',
-    'blind-spot-left': 'A pedestrian or road user approaches on a collision trajectory from the left side.',
-    'blind-spot-right': 'A pedestrian or road user approaches on a collision trajectory from the right side.',
-}
 
 
 class VideoLanguageSystem:
@@ -175,11 +150,7 @@ class VideoLanguageSystem:
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         # Preserve actual crop-relative presentation times through the model's
         # native video timestamp tokens. Millisecond indices avoid frame-rate rounding.
-        metadata = {
-            'fps': 1000.0,
-            'total_num_frames': max(1, int(np.ceil((interval.end - interval.start) * 1000))),
-            'frames_indices': np.round(seconds * 1000).astype(int).tolist(),
-        }
+        metadata = timestamp_metadata(seconds, interval.end - interval.start)
         batch = self.processor(
             text=[text],
             videos=[frames],
@@ -195,14 +166,7 @@ class VideoLanguageSystem:
         )[0].strip()
 
     def caption(self, video, interval, domain):
-        rule = DOMAIN_RULES[domain]
-        prompt = (
-            'Describe the visible driving event in this video. State the ego motion, relevant traffic signals, '
-            'stop-line crossing, neighboring road users, their relative directions and possible collision course. '
-            f'Focus on evidence for this event criterion: {rule} '
-            'Describe the observations without inventing unseen actions. Return a concise English paragraph.'
-        )
-        return self.generate(video, interval, prompt)
+        return self.generate(video, interval, caption_prompt(domain))
 
     def embed(self, captions):
         if self.text_encoder is None:
@@ -217,27 +181,9 @@ class VideoLanguageSystem:
 
     def ground(self, video, interval, candidate, domain):
         duration = interval.end - interval.start
-        references = json.dumps(
-            [{'caption': row.get('caption', ''), 'label': row['label']} for row in candidate.neighbors or []],
-            ensure_ascii=False,
-        )
-        prompt = (
-            f'Localize this traffic event: {DOMAIN_RULES[domain]} '
-            f'This crop lasts {duration:.3f} seconds; timestamp zero is its first instant. '
-            f'Candidate observations: {candidate.caption}\n'
-            f'Retrieved annotated examples, with label 1 for violations and 0 for safe events: {references}\n'
-            'Inspect the full crop and return only JSON {"start": number, "end": number} in seconds '
-            'relative to this crop. Start at the first visible violation instant and end when it stops. '
-            f'Require 0 <= start < end <= {duration:.3f}. If the criterion is not met, return {{"violation": false}}.'
-        )
-        response = self.generate(video, interval, prompt)
-        match = re.search(r'\{[^{}]*\}', response)
-        if match is None:
-            raise ValueError(f'Qwen grounding did not return a JSON object: {response}')
-        result = json.loads(match.group())
-        if result.get('violation') is False:
-            return None
-        return float(result['start']), float(result['end'])
+        prompt = grounding_prompt(domain, duration, candidate.caption, candidate.neighbors)
+        response = parse_grounding(self.generate(video, interval, prompt), duration)
+        return response.interval
 
     def for_video(self, video, domain):
         if domain not in DOMAIN_RULES:
